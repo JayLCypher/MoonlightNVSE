@@ -1,14 +1,12 @@
 #pragma once
-#include "nvse/CommandTable.h"
+#ifndef DECODING_H
+#define DECODING_H
+
 #include "nvse/GameAPI.h"
-#include "nvse/ParamInfos.h"
 #include "nvse/GameObjects.h"
-#include "nvse/SafeWrite.h"
 #include "nvse/GameData.h"
 #include "nvse/NiObjects.h"
 #include "nvse/Utilities.h"
-#include "nvse/utility.h"
-#include <string>
 
 class NiBSBoneLODController;
 class NiBSplineCompTransformInterpolator;
@@ -27,22 +25,20 @@ struct NavMeshClosedDoorInfo;
 
 
 // 08
-class SkyObject
-{
+class SkyObject {
 public:
 	virtual SkyObject* Destroy(bool doFree);
-	virtual NiNode* GetNiNode(void);
-	virtual void		InitNiNode(NiNode* skyNode04);
-	virtual void		Update(Sky* sky, float value);
+	virtual NiNode* GetNiNode();
+	virtual void InitNiNode(NiNode* skyNode04);
+	virtual void Update(Sky* sky, float value);
 
 	NiNode* rootNode;	// 04
 };
 
 // 1C
-class Atmosphere : public SkyObject
-{
+class Atmosphere : public SkyObject {
 public:
-	virtual void		Init(NiNode* niNode, void* _fogProp);
+	virtual void	Init(NiNode* niNode, void* _fogProp);
 
 	NiNode* node08;	// 08
 	void* fogProp;	// 0C	Same as *0x11DEB00
@@ -53,11 +49,10 @@ public:
 };
 
 // 10
-class Stars : public SkyObject
-{
+class Stars : public SkyObject {
 public:
 	NiNode* node08;	// 08
-	float			flt0C;		// 0C
+	float flt0C;		// 0C
 };
 
 // 2C
@@ -386,3 +381,5 @@ public:
 	__forceinline static TES* Get() { return *(TES**)0x11DEA10; }
 };
 STATIC_ASSERT(sizeof(TES) == 0xC4);
+
+#endif

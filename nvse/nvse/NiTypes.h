@@ -38,9 +38,7 @@ struct NiMatrix33
 {
 	float	m_pEntry[3][3];
 
-
-	NiMatrix33(float m00, float m10, float m20, float m01, float m11, float m21, float m02, float m12, float m22)
-	{
+	NiMatrix33(float m00, float m10, float m20, float m01, float m11, float m21, float m02, float m12, float m22) {
 		m_pEntry[0][0] = m00;
 		m_pEntry[0][1] = m10;
 		m_pEntry[0][2] = m20;
@@ -51,7 +49,7 @@ struct NiMatrix33
 		m_pEntry[2][1] = m12;
 		m_pEntry[2][2] = m22;
 	}
-	NiMatrix33() {}
+	NiMatrix33() : m_pEntry{} {}
 };
 typedef NiMatrix33 NiMatrix3;
 

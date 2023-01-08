@@ -1,4 +1,8 @@
 #pragma once
+#ifndef SCRIPTTOKENS_H
+#define SCRIPTTOKENS_H
+
+#include <variant>
 #include "LambdaManager.h"
 #include "ScriptAnalyzer.h"
 #include "SmallObjectsAllocator.h"
@@ -19,7 +23,7 @@ extern SInt32 FUNCTION_CONTEXT_COUNT;
 #include "StringVar.h"
 #include "GameAPI.h"
 #endif
-#include <variant>
+
 
 enum class NVSEVarType
 {
@@ -269,7 +273,7 @@ struct ScriptToken
 	[[nodiscard]] StringVar* GetStringVar() const;
 	bool ResolveVariable();
 	[[nodiscard]] Script* GetUserFunction() const;
-	ScriptParsing::CommandCallToken GetCallToken(Script* script) const;
+	//ScriptParsing::CommandCallToken GetCallToken(Script* script) const;
 #endif
 	[[nodiscard]] virtual bool CanConvertTo(Token_Type to) const; // behavior varies b/w compile/run-time for ambiguous types
 	[[nodiscard]] virtual ArrayID GetOwningArrayID() const { return 0; }
@@ -606,4 +610,6 @@ struct Operator
 bool CanConvertOperand(Token_Type from, Token_Type to); // don't use directly at run-time, use ScriptToken::CanConvertTo() instead
 #if RUNTIME
 void AddToGarbageCollection(ScriptEventList *eventList, ScriptLocal *var, NVSEVarType type);
+#endif
+
 #endif

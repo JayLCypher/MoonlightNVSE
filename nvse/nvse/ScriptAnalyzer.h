@@ -4,14 +4,14 @@
 #include "GameAPI.h"
 #include "GameObjects.h"
 #include "GameScript.h"
+#include "ScriptUtils.h"
 
 class ExpressionEvaluator;
 class CachedTokens;
 CommandInfo* GetEventCommandInfo(UInt16 opcode);
 void UnformatString(std::string& str);
 
-namespace ScriptParsing
-{
+namespace ScriptParsing {
 	class ExpressionToken;
 	class CommandCallToken;
 	enum class ExpressionCode : UInt8;

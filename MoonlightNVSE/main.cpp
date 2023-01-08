@@ -1,15 +1,11 @@
 #include "nvse/PluginAPI.h"
 #include "nvse/CommandTable.h"
 #include "nvse/GameAPI.h"
-#include "nvse/ParamInfos.h"
 #include "nvse/GameObjects.h"
 #include "nvse/SafeWrite.h"
-#include "nvse/GameData.h"
 #include "nvse/NiObjects.h"
 #include "nvse/Utilities.h"
-#include "nvse/utility.h"
 #include <internal/decoding.h>
-#include <string>
 
 IDebugLog		gLog("logs\\moonlightNVSE.log");
 PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
@@ -26,80 +22,75 @@ NVSESerializationInterface* g_serializationInterface{};
 NVSEConsoleInterface* g_consoleInterface{};
 NVSEEventManagerInterface* g_eventInterface{};
 
-GameTimeGlobals* g_gameTimeGlobals = (GameTimeGlobals*)0x11DE7B8;
+GameTimeGlobals* g_gameTimeGlobals = reinterpret_cast<GameTimeGlobals*>(0x11DE7B8);
 bool (*ExtractArgsEx)(COMMAND_ARGS_EX, ...);
 
-typedef struct HSVColor
-{
-	float h;
-	float s;
-	float v;
-} HSVColor;
+typedef struct HSVColor { float hue, saturation, value; } HSVColor;
 
-NiColor HSVToRGB(HSVColor HSV)
-{
-	NiColor RGB;
-	double      hh, p, q, t, ff;
-	long        i;
+// Art of Computer Programming by Knuth
+bool approximatelyEqual(const float a, const float b) { return fabs(a - b) <= (fabs(a) < fabs(b) ? fabs(b) : fabs(a)) * static_cast<float>(DBL_EPSILON); }
+bool essentiallyEqual(const float a, const float b) { return fabs(a - b) <= (fabs(a) > fabs(b) ? fabs(b) : fabs(a)) * static_cast<float>(DBL_EPSILON); }
 
-	HSV.s = HSV.s / 100;
-	HSV.v = (HSV.v * 255) / 100;
+NiColor HSVToRGB(HSVColor hsv) {
+	NiColor RGB = {
+		hsv.value,
+		hsv.value,
+		hsv.value,
+	};
+	
+	hsv.saturation = hsv.saturation / 100.0f;
+	hsv.value = hsv.value * 255 / 100.0f;
 
-	if (HSV.s <= 0.0) {
-		RGB.r = HSV.v;
-		RGB.g = HSV.v;
-		RGB.b = HSV.v;
-	}
-	else {
-		hh = HSV.h;
-		if (hh >= 360.0) hh = 0.0;
+	if (hsv.saturation >= 0.0f) {
+		auto hh = static_cast<double>(hsv.hue);
+		if (hh >= 360.0) { hh = 0.0; }
 		hh /= 60.0;
-		i = (long)hh;
-		ff = hh - i;
-		p = HSV.v * (1.0 - HSV.s);
-		q = HSV.v * (1.0 - (HSV.s * ff));
-		t = HSV.v * (1.0 - (HSV.s * (1.0 - ff)));
+		const long i = static_cast<long>(hh);
+		const double ff = hh - i;
+		const auto p = static_cast<double>(hsv.value * (1.0f - hsv.saturation));
+		const auto q = static_cast<double>(hsv.value * (1.0f - hsv.saturation * static_cast<float>(ff)));
+		const auto t = static_cast<double>(hsv.value * (1.0f - hsv.saturation * (1.0f - static_cast<float>(ff))));
 
 		switch (i) {
 		case 0:
-			RGB.r = HSV.v;
-			RGB.g = t;
-			RGB.b = p;
+			RGB.r = hsv.value;
+			RGB.g = static_cast<float>(t);
+			RGB.b = static_cast<float>(p);
 			break;
 		case 1:
-			RGB.r = q;
-			RGB.g = HSV.v;
-			RGB.b = p;
+			RGB.r = static_cast<float>(q);
+			RGB.g = hsv.value;
+			RGB.b = static_cast<float>(p);
 			break;
 		case 2:
-			RGB.r = p;
-			RGB.g = HSV.v;
-			RGB.b = t;
+			RGB.r = static_cast<float>(p);
+			RGB.g = hsv.value;
+			RGB.b = static_cast<float>(t);
 			break;
 		case 3:
-			RGB.r = p;
-			RGB.g = q;
-			RGB.b = HSV.v;
+			RGB.r = static_cast<float>(p);
+			RGB.g = static_cast<float>(q);
+			RGB.b = hsv.value;
 			break;
 		case 4:
-			RGB.r = t;
-			RGB.g = p;
-			RGB.b = HSV.v;
+			RGB.r = static_cast<float>(t);
+			RGB.g = static_cast<float>(p);
+			RGB.b = hsv.value;
 			break;
 		default:
-			RGB.r = HSV.v;
-			RGB.g = p;
-			RGB.b = q;
+			RGB.r = hsv.value;
+			RGB.g = static_cast<float>(p);
+			RGB.b = static_cast<float>(q);
 			break;
 		}
 	}
-	RGB.r = RGB.r / 255;
-	RGB.g = RGB.g / 255;
-	RGB.b = RGB.b / 255;
+	RGB.r = RGB.r / 255.0f;
+	RGB.g = RGB.g / 255.0f;
+	RGB.b = RGB.b / 255.0f;
 
-	if (RGB.r > 1) RGB.r = 1;
-	if (RGB.g > 1) RGB.g = 1;
-	if (RGB.b > 1) RGB.b = 1;
+	if (RGB.r > 1.0f) { RGB.r = 1.0f; }
+	if (RGB.g > 1.0f) { RGB.g = 1.0f; }
+	if (RGB.b > 1.0f) { RGB.b = 1.0f; }
 
 #ifdef _DEBUG
 	_MESSAGE("[HSVToRGB] " "R %f, G %f, B %f", RGB.r, RGB.g, RGB.b);
@@ -107,87 +98,63 @@ NiColor HSVToRGB(HSVColor HSV)
 	return RGB;
 }
 
-HSVColor RGBToHSV(NiColor RGB)
-{
-	HSVColor HSV;
+HSVColor RGBToHSV(const NiColor rgb) {
+	HSVColor hsv = {};
 
-	float fCMax = max(max(RGB.r, RGB.g), RGB.b);
-	float fCMin = min(min(RGB.r, RGB.g), RGB.b);
-	float fDelta = fCMax - fCMin;
+	const float fCMax = max(max(rgb.r, rgb.g), rgb.b);
+	const float fCMin = min(min(rgb.r, rgb.g), rgb.b);
 
-	if (fDelta > 0) {
-		if (fCMax == RGB.r) {
-			HSV.h = 60 * (fmod(((RGB.g - RGB.b) / fDelta), 6));
-		}
-		else if (fCMax == RGB.g) {
-			HSV.h = 60 * (((RGB.b - RGB.r) / fDelta) + 2);
-		}
-		else if (fCMax == RGB.b) {
-			HSV.h = 60 * (((RGB.r - RGB.g) / fDelta) + 4);
-		}
+	if (const float fDelta = fCMax - fCMin; fDelta > 0) {
+		if (approximatelyEqual(fCMax, rgb.r)) { hsv.hue = static_cast<float>(60.0 * fmod(rgb.g - rgb.b / fDelta, 6)); } // if (fCMax == rgb.r) { hsv.hue = 60.0 * fmod(rgb.g - rgb.b / fDelta, 6); }
+		else if (approximatelyEqual(fCMax, rgb.g)) { hsv.hue = 60 * ((rgb.b - rgb.r) / fDelta + 2); } // else if (fCMax == rgb.g) { hsv.hue = 60 * ((rgb.b - rgb.r) / fDelta + 2); }
+		else if (approximatelyEqual(fCMax ,rgb.b)) { hsv.hue = 60 * ((rgb.r - rgb.g) / fDelta + 4); } // else if (fCMax == rgb.b) { hsv.hue = 60 * ((rgb.r - rgb.g) / fDelta + 4); }
 
-		if (fCMax > 0) {
-			HSV.s = (fDelta / fCMax) * 100;
-		}
-		else {
-			HSV.s = 0;
-		}
-
-		HSV.v = fCMax;
+		if (fCMax > 0) { hsv.saturation = fDelta / fCMax * 100.0f; }
+		else { hsv.saturation = 0.0f; }
+		hsv.value = fCMax;
 	}
 	else {
-		HSV.h = 0;
-		HSV.s = 0;
-		HSV.v = fCMax;
+		hsv.hue = 0.0f;
+		hsv.saturation = 0.0f;
+		hsv.value = fCMax;
 	}
 
-	if (HSV.h < 0) {
-		HSV.h = 360 + HSV.h;
-	}
-	HSV.v = HSV.v * 100;
+	if (hsv.hue < 0.0f) { hsv.hue = 360.0f + hsv.hue; }
+	hsv.value = hsv.value * 100.0f;
 #ifdef _DEBUG
-	_MESSAGE("[HextoHSV] " "H %f, S %f, V %f", HSV.h, HSV.s, HSV.v);
+	_MESSAGE("[HextoHSV] " "H %f, S %f, V %f", static_cast<double>(hsv.hue), static_cast<double>(hsv.saturation), static_cast<double>(hsv.value));
 #endif
-	return HSV;
+	return hsv;
 }
 
-inline HSVColor HexToHSV(UInt32 HexValue)
-{
-	NiColor RGB;
-
-	RGB.b = ((HexValue >> 16) & 0xFF) / 255.0;
-	RGB.g = ((HexValue >> 8) & 0xFF) / 255.0;
-	RGB.r = ((HexValue) & 0xFF) / 255.0;
-
+inline HSVColor HexToHSV(const UInt32 hexValue) {
+	const NiColor RGB = {
+		static_cast<float>(hexValue & 0xFF) / 255.0f,
+		static_cast<float>(hexValue >> 8 & 0xFF) / 255.0f,
+		static_cast<float>(hexValue >> 16 & 0xFF) / 255.0f,
+	};
 	return RGBToHSV(RGB);
 }
 
-inline float GetDaysPassed()
-{
-	if (g_gameTimeGlobals->daysPassed)
-	{
-		return g_gameTimeGlobals->daysPassed->data;
-	}
-	return 1.0F;
+inline float GetDaysPassed() {
+	if (g_gameTimeGlobals->daysPassed) { return g_gameTimeGlobals->daysPassed->data; }
+	return 1.0f;
 }
 
-inline float Unitize(NiPoint3* src)
-{
+inline float Unitize(NiPoint3* src) {
 	float length = sqrt(src->x * src->x + src->y * src->y + src->z * src->z);
 
-	if (length > 1e-06f)
-	{
+	if (length > 1e-06f) {
 		float recip = 1.0f / length;
 		src->x *= recip;
 		src->y *= recip;
 		src->z *= recip;
 	}
-	else
-	{
-		src->x = 0;
-		src->y = 0;
-		src->z = 0;
-		length = 0;
+	else {
+		src->x = 0.0f;
+		src->y = 0.0f;
+		src->z = 0.0f;
+		length = 0.0f;
 	}
 
 	return length;
@@ -200,10 +167,10 @@ float moonVisibility = 1;
 
 void __fastcall SetMoonLightFNV(NiNode* object, void* dummy, NiMatrix33* position) {
 	Sky* FNV_sky = Sky::Get();
-	TESClimate* climate = FNV_sky->currClimate;
+	const TESClimate *climate = FNV_sky->currClimate;
 	HSVColor currentColor = RGBToHSV(FNV_sky->sunDirectional);
-	TES* tes = TES::Get();
-	NiNode* FNV_weather = *(NiNode**)0x11DEDA4;
+	const TES *tes = TES::Get();
+	const NiNode *FNV_weather = *reinterpret_cast<NiNode**>(0x11DEDA4);
 
 	if (FNV_sky->masserMoon != nullptr) {
 		const float gameHour = FNV_sky->gameHour;
@@ -217,34 +184,24 @@ void __fastcall SetMoonLightFNV(NiNode* object, void* dummy, NiMatrix33* positio
 		sunsetEnd = ThisStdCall<float>(0x596030, FNV_sky);
 
 		daysPassed = GetDaysPassed();
-		float phase = (fmod(daysPassed, (climate->phaseLength & 0x3F) * 8)) / (climate->phaseLength & 0x3F);
+		const float phase = static_cast<float>(fmod(daysPassed, (climate->phaseLength & 0x3f) * 8)) / static_cast<float>(climate->phaseLength & 0x3f);
 
 		moonVisibility = 1;
 
-		if ((gameHour >= sunsetEnd) || (gameHour < sunriseStart)) {
+		if (gameHour >= sunsetEnd || gameHour < sunriseStart) {
 			position = &FNV_sky->masserMoon->rootNode->m_transformLocal.m_Rotate;
-			position->m_pEntry[0][0] = -(position->m_pEntry[0][0] * 0.5);
+			position->m_pEntry[0][0] = -(position->m_pEntry[0][0] * 0.5f);
 
 #ifdef _DEBUG
 			_MESSAGE("[Time] " "Night is in progress!");
 #endif
 
 			// Moon phase management
-			if ((phase > 4.25) && (phase < 5.25)) {
-				moonVisibility = 0;
-			}
-			else if ((phase > 3.25) && (phase < 4.25) || (phase > 5.25) && (phase < 6.25)) {
-				moonVisibility = 0.3;
-			}
-			else if ((phase > 2.25) && (phase < 3.25) || (phase > 6.25) && (phase < 7.25)) {
-				moonVisibility = 0.5;
-			}
-			else if ((phase > 1.25) && (phase < 2.25) || (phase > 7.25) && (phase < 8.25) || phase < 0.25) {
-				moonVisibility = 0.9;
-			}
-			else if ((phase > 0.25) && (phase < 1.25)) {
-				moonVisibility = 1;
-			}
+			if (phase > 4.25f && phase < 5.25f) { moonVisibility = 0; }
+			else if (phase > 3.25f && phase < 4.25f || phase > 5.25f && phase < 6.25f) { moonVisibility = 0.3f; }
+			else if (phase > 2.25f && phase < 3.25f || phase > 6.25f && phase < 7.25f) { moonVisibility = 0.5f; }
+			else if (phase > 1.25f && phase < 2.25f || phase > 7.25f && phase < 8.25f || phase < 0.25f) { moonVisibility = 0.9f; }
+			else if (phase > 0.25f && phase < 1.25f) { moonVisibility = 1; }
 
 			// Night
 			if (gameHour > sunsetEnd) {
@@ -262,14 +219,14 @@ void __fastcall SetMoonLightFNV(NiNode* object, void* dummy, NiMatrix33* positio
 		}
 		else {
 			//Sunset
-			if ((gameHour >= sunsetStart) && (gameHour <= sunsetEnd)) {
-				multiplier = -((gameHour - sunsetEnd));
+			if (gameHour >= sunsetStart && gameHour <= sunsetEnd) {
+				multiplier = -(gameHour - sunsetEnd);
 #ifdef _DEBUG 	
 				_MESSAGE("[Time] " "Sunset is in progress!");
 #endif
 			}
 			// Sunrise
-			else if ((gameHour >= sunriseStart) && (gameHour <= sunriseEnd)) {
+			else if (gameHour >= sunriseStart && gameHour <= sunriseEnd) {
 				multiplier = (gameHour - sunriseStart);
 #ifdef _DEBUG
 				_MESSAGE("[Time] " "Sunrise is in progress!");
@@ -277,19 +234,19 @@ void __fastcall SetMoonLightFNV(NiNode* object, void* dummy, NiMatrix33* positio
 			}
 		}
 
-		currentColor.v *= min(max(multiplier, 0), 1);
+		currentColor.value *= min(max(multiplier, 0), 1);
 		FNV_sky->sunDirectional = HSVToRGB(currentColor);
 
 #ifdef _DEBUG
-		NiColor currentColorRGB = HSVToRGB(currentColor);
-		TESWeather* weather = FNV_sky->currWeather;
-		_MESSAGE("[Sunlight]" "Current RGB color is R: %f, G: %f, B: %f", currentColorRGB.r, currentColorRGB.g, currentColorRGB.b);
-		_MESSAGE("[Sunlight]" "Current HSV color is H: %f, S: %f, V: %f", currentColor.h, currentColor.s, currentColor.v);
+		auto [r, g, b] = HSVToRGB(currentColor); // structured binding
+		const TESWeather* weather = FNV_sky->currWeather;
+		_MESSAGE("[Sunlight]" "Current RGB color is R: %f, G: %f, B: %f", static_cast<double>(r), static_cast<double>(g), static_cast<double>(b));
+		_MESSAGE("[Sunlight]" "Current HSV color is H: %f, S: %f, V: %f", static_cast<double>(currentColor.hue), static_cast<double>(currentColor.saturation), static_cast<double>(currentColor.value));
 		_MESSAGE("[Weather] " "Weather %s", weather->GetEditorID());
-		_MESSAGE("[Moon]    " "Current phase is %f", phase);
-		_MESSAGE("[Moon]    " "Current visiblity is %f", moonVisibility);
-		_MESSAGE("[Time]    " "Days passed %f", daysPassed);
-		_MESSAGE("[Time]    " "Current hour is %f", gameHour);
+		_MESSAGE("[Moon]    " "Current phase is %f", static_cast<double>(phase));
+		_MESSAGE("[Moon]    " "Current visibility is %f", static_cast<double>(moonVisibility));
+		_MESSAGE("[Time]    " "Days passed %f", static_cast<double>(daysPassed));
+		_MESSAGE("[Time]    " "Current hour is %f", static_cast<double>(gameHour));
 #endif
 	}
 	object->m_transformLocal.m_Rotate = *position;
@@ -297,62 +254,47 @@ void __fastcall SetMoonLightFNV(NiNode* object, void* dummy, NiMatrix33* positio
 	// Fixes sky position in interiors marked as exterior. 
 	// It doesn't respect the north angle offset in vanilla, making sunrise happen at south etc.
 	float northAngle = 0;
-	if (tes->currentInterior) {
-		northAngle = -ThisStdCall<float>(0x555AD0, tes->currentInterior);
-	}
+	if (tes->currentInterior) { northAngle = -ThisStdCall<float>(0x555AD0, tes->currentInterior); }
 	ThisStdCall(0x4A0C90, &FNV_sky->niNode004->m_transformLocal.m_Rotate, northAngle);
 	ThisStdCall(0x4A0C90, &FNV_weather->m_transformLocal.m_Rotate, northAngle);
 }
 
 void __fastcall SetMoonLightGECK(NiPoint3* position) {
-	Sky_GECK* GECK_sky = Sky_GECK::Get();
-	float gameHour = GECK_sky->fCurrentGameHour;
+	const Sky_GECK *GECK_sky = Sky_GECK::Get();
+	const float gameHour = GECK_sky->fCurrentGameHour;
 	// Not bothering with color fade
 	position->y = -position->y;
-	if ((GECK_sky->masserMoon != nullptr) && (gameHour >= ThisStdCall<float>(0x680460, GECK_sky)) || (gameHour < ThisStdCall<float>(0x6803A0, GECK_sky))) {
-		NiMatrix33* rotMatrix = &GECK_sky->masserMoon->rootNode->m_transformLocal.m_Rotate;
-		position->x = -(rotMatrix->m_pEntry[0][0] * 0.5);
+	if (GECK_sky && GECK_sky->masserMoon && gameHour >= ThisStdCall<float>(0x680460, GECK_sky) || gameHour < ThisStdCall<float>(0x6803A0, GECK_sky)) {
+		const NiMatrix33* rotMatrix = &GECK_sky->masserMoon->rootNode->m_transformLocal.m_Rotate;
+		position->x = -(rotMatrix->m_pEntry[0][0] * 0.5f);
 		position->y = rotMatrix->m_pEntry[1][0];
 		position->z = rotMatrix->m_pEntry[2][0];
 	}
 	Unitize(position);
 }
 
-bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
-{
+bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info) {
 	// fill out the info structure
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "MoonlightNVSE";
 	info->version = 140;
 
 	// version checks
-	if (nvse->nvseVersion < PACKED_NVSE_VERSION)
-	{
+	if (nvse->nvseVersion < PACKED_NVSE_VERSION) {
 		_ERROR("NVSE version too old (got %08X expected at least %08X)", nvse->nvseVersion, PACKED_NVSE_VERSION);
 		return false;
 	}
-
-	if (!nvse->isEditor)
-	{
-		if (nvse->runtimeVersion < RUNTIME_VERSION_1_4_0_525)
-		{
-			_ERROR("incorrect runtime version (got %08X need at least %08X)", nvse->runtimeVersion, RUNTIME_VERSION_1_4_0_525);
-			return false;
-		}
-
-		if (nvse->isNogore)
-		{
+	if (!nvse->isEditor && nvse->runtimeVersion < RUNTIME_VERSION_1_4_0_525) {
+		if (nvse->isNogore) {
 			_ERROR("NoGore is not supported");
 			return false;
 		}
+		_ERROR("incorrect runtime version (got %08X need at least %08X)", nvse->runtimeVersion, RUNTIME_VERSION_1_4_0_525);
+		return false;
 	}
-	else
-	{
-		if (nvse->editorVersion < CS_VERSION_1_4_0_518)
-		{
-			_ERROR("incorrect editor version (got %08X need at least %08X)", nvse->editorVersion, CS_VERSION_1_4_0_518);
-			return false;
-		}
+	if (nvse->editorVersion < CS_VERSION_1_4_0_518) {
+		_ERROR("incorrect editor version (got %08X need at least %08X)", nvse->editorVersion, CS_VERSION_1_4_0_518);
+		return false;
 	}
 
 	// version checks pass
@@ -360,22 +302,14 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 	return true;
 }
 
-bool NVSEPlugin_Load(NVSEInterface* nvse)
-{
+bool NVSEPlugin_Load(NVSEInterface* nvse) {
 	_MESSAGE("MoonlightNVSE loaded!");
 
 	g_pluginHandle = nvse->GetPluginHandle();
-
 	g_nvseInterface = nvse;
 
-	if (!nvse->isEditor) {
-		// FNV
-		WriteRelCall(0x6422EE, (UInt32)SetMoonLightFNV);
-	}
-	else {
-		// GECK
-		WriteRelCall(0x685940, (UInt32)SetMoonLightGECK);
-	}
+	if (!nvse->isEditor) { WriteRelCall(0x6422EE, reinterpret_cast<UInt32>(SetMoonLightFNV)); } // FNV
+	else { WriteRelCall(0x685940, reinterpret_cast<UInt32>(SetMoonLightGECK)); } // GECK
 
 	return true;
 }

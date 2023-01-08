@@ -169,7 +169,7 @@ std::string GetNVSEConfigOption(const char * section, const char * key)
 		char	resultBuf[256];
 		resultBuf[0] = 0;
 
-		UInt32	resultLen = GetPrivateProfileString(section, key, NULL, resultBuf, 255, configPath.c_str());
+		UInt32	resultLen = GetPrivateProfileString(section, key, nullptr, resultBuf, 255, configPath.c_str());
 
 		result = resultBuf;
 	}
@@ -177,13 +177,12 @@ std::string GetNVSEConfigOption(const char * section, const char * key)
 	return result;
 }
 
-bool GetNVSEConfigOption_UInt32(const char * section, const char * key, UInt32 * dataOut)
-{
+bool GetNVSEConfigOption_UInt32(const char * section, const char * key, UInt32 * dataOut) {
 	std::string	data = GetNVSEConfigOption(section, key);
 	if(data.empty())
 		return false;
 
-	return (sscanf(data.c_str(), "%lu", dataOut) == 1);
+	return sscanf_s(data.c_str(), "%lu", dataOut) == 1;
 }
 
 namespace MersenneTwister
